@@ -73,6 +73,17 @@ type typctx = TypCtx.t(htyp);
 
 exception Unimplemented;
 
+let rec consistent_types = (t1: htyp, t2: htyp): bool => {
+  // Rule 3a-3d
+  switch (t1, t2) {
+  | (Hole, _) => true
+  | (_, Hole) => true
+  | (Arrow(t11, t12), Arrow(t21, t22)) =>
+    consistent_types(t11, t21) && consistent_types(t12, t22)
+  | _ => t1 == t2
+  };
+};
+
 let erase_exp = (e: zexp): hexp => {
   // Used to suppress unused variable warnings
   // Okay to remove
@@ -123,8 +134,22 @@ let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
 }
 
 and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
-
-  false;
+  switch (e) {
+  | Lam(x, e) =>
+    // Rule 2a
+    switch (t) {
+    | Arrow(t1, t2) =>
+      let ctx' = TypCtx.add(x, t1, ctx);
+      ana(ctx', e, t2);
+    | _ => false
+    }
+  | _ =>
+    // Rule 2b
+    switch (syn(ctx, e)) {
+    | Some(t') => consistent_types(t, t')
+    | None => false
+    }
+  };
 };
 
 let syn_action =
