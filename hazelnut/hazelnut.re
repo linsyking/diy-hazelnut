@@ -84,14 +84,25 @@ let rec consistent_types = (t1: htyp, t2: htyp): bool => {
   };
 };
 
-let erase_exp = (e: zexp): hexp => {
-  // Used to suppress unused variable warnings
-  // Okay to remove
-  let _ = e;
-
-  print_endline("erase unimplemented");
-
-  raise(Unimplemented);
+let rec erase_exp = (e: zexp): hexp => {
+  switch (e) {
+  | Cursor(e) => e
+  | Lam(x, e) => Lam(x, erase_exp(e))
+  | LAp(e1, e2) => Ap(erase_exp(e1), e2)
+  | RAp(e1, e2) => Ap(e1, erase_exp(e2))
+  | LPlus(e1, e2) => Plus(erase_exp(e1), e2)
+  | RPlus(e1, e2) => Plus(e1, erase_exp(e2))
+  | LAsc(e, t) => Asc(erase_exp(e), t)
+  | RAsc(e, t) => Asc(e, erase_typ(t))
+  | NEHole(e) => NEHole(erase_exp(e))
+  };
+}
+and erase_typ = (t: ztyp): htyp => {
+  switch (t) {
+  | Cursor(t) => t
+  | LArrow(t1, t2) => Arrow(erase_typ(t1), t2)
+  | RArrow(t1, t2) => Arrow(t1, erase_typ(t2))
+  };
 };
 
 let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
