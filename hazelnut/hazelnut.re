@@ -228,12 +228,106 @@ let rec exp_move = (e: zexp, dir: dir): option(zexp) => {
 
 let rec syn_action =
         (ctx: typctx, (e: zexp, t: htyp), a: action): option((zexp, htyp)) => {
-  // switch (a) {
-  // | Move(dir) => syn_move(e, dir)
-  // };
-  raise(
-    Unimplemented,
-  );
+  // A.3.3 Synthetic and Analytic Expression Actions
+  switch (e, a, t) {
+  // Movement
+  | (_, Move(dir), t) =>
+    let* e' = exp_move(e, dir);
+    Some((e', t));
+  // Deletion
+  | (Cursor(_), Del, _) => Some((Cursor(EHole), Hole))
+  // Construction
+  | (Cursor(e'), Construct(Asc), t) => Some((RAsc(e', Cursor(t)), t))
+  | (Cursor(EHole), Construct(Var(name)), Hole) =>
+    let* t = TypCtx.find_opt(name, ctx);
+    Some((Cursor(Var(name)), t));
+  | (Cursor(EHole), Construct(Lam(name)), Hole) =>
+    Some((
+      RAsc(Lam(name, EHole), LArrow(Cursor(Hole), Hole)),
+      Arrow(Hole, Hole),
+    ))
+  | (Cursor(e'), Construct(Ap), t) =>
+    switch (t) {
+    | Arrow(_, t2) => Some((RAp(e', Cursor(EHole)), t2))
+    | Hole => Some((RAp(e', Cursor(EHole)), Hole))
+    | _ =>
+      // SACONAPOTW
+      Some((RAp(NEHole(e'), Cursor(EHole)), Hole))
+    }
+  | (Cursor(EHole), Construct(Lit(n)), Hole) =>
+    Some((Cursor(Lit(n)), Num))
+  | (Cursor(e'), Construct(Plus), t) =>
+    if (consistent_types(t, Num)) {
+      Some((RPlus(e', Cursor(EHole)), Num));
+    } else {
+      Some((RPlus(NEHole(e'), Cursor(EHole)), Num));
+    }
+  | (Cursor(e'), Construct(NEHole), _) => Some((NEHole(Cursor(e')), Hole))
+  // Finishing
+  | (Cursor(NEHole(e)), Finish, Hole) =>
+    let* t = syn(ctx, e);
+    Some((Cursor(e), t));
+  // Zipper Cases
+  | (LAsc(e, t'), _, _) =>
+    if (t' == t) {
+      let* e' = ana_action(ctx, e, a, t);
+      Some((LAsc(e', t'), t));
+    } else {
+      None;
+    }
+  | (RAsc(e, t'), _, _) =>
+    if (erase_typ(t') == t) {
+      let* t'' = typ_action(t', a);
+      let et = erase_typ(t'');
+      if (ana(ctx, e, et)) {
+        Some((RAsc(e, t''), et));
+      } else {
+        None;
+      };
+    } else {
+      None;
+    }
+  | (LAp(e1, e2), _, _) =>
+    let* t2 = syn(ctx, erase_exp(e1));
+    let* (e1', t3) = syn_action(ctx, (e1, t2), a);
+    switch (t3) {
+    | Arrow(t4, t5) =>
+      if (ana(ctx, e2, t4)) {
+        Some((LAp(e1', e2), t5));
+      } else {
+        None;
+      }
+    | Hole =>
+      if (ana(ctx, e2, Hole)) {
+        Some((LAp(e1', e2), Hole));
+      } else {
+        None;
+      }
+    | _ => None
+    };
+  | (RAp(e1, e2), _, _) =>
+    let* t2 = syn(ctx, e1);
+    switch (t2) {
+    | Arrow(t3, t4) =>
+      let* e2' = ana_action(ctx, e2, a, t3);
+      Some((RAp(e1, e2'), t4));
+    | Hole =>
+      let* e2' = ana_action(ctx, e2, a, Hole);
+      Some((RAp(e1, e2'), Hole));
+    | _ => None
+    };
+  | (LPlus(e1, e2), _, Num) =>
+    let* e1' = ana_action(ctx, e1, a, Num);
+    Some((LPlus(e1', e2), Num: htyp));
+  | (RPlus(e1, e2), _, Num) =>
+    let* e2' = ana_action(ctx, e2, a, Num);
+    Some((RPlus(e1, e2'), Num: htyp));
+  | (NEHole(e), _, Hole) =>
+    let* t = syn(ctx, erase_exp(e));
+    let* (e', _) = syn_action(ctx, (e, t), a);
+    Some((NEHole(e'): zexp, Hole));
+  | _ => None
+  };
 }
 
 and ana_action = (ctx: typctx, e: zexp, a: action, t: htyp): option(zexp) => {
