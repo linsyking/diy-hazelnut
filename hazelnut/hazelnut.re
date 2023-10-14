@@ -198,9 +198,32 @@ let rec typ_action = (t: ztyp, a: action): option(ztyp) => {
   };
 };
 
-let rec move_exp = (e: zexp, dir: dir): option(zexp) => {
+let rec exp_move = (e: zexp, dir: dir): option(zexp) => {
   // A.3.2 Expression Movement Actions
-  raise(Unimplemented);
+  switch (e, dir) {
+  // Ascription
+  | (Cursor(Asc(e, t)), Child(One)) => Some(LAsc(Cursor(e), t))
+  | (Cursor(Asc(e, t)), Child(Two)) => Some(RAsc(e, Cursor(t)))
+  | (LAsc(Cursor(e), t), Parent) => Some(Cursor(Asc(e, t)))
+  | (RAsc(e, Cursor(t)), Parent) => Some(Cursor(Asc(e, t)))
+  // Lambda
+  | (Cursor(Lam(x, e)), Child(One)) => Some(Lam(x, Cursor(e)))
+  | (Lam(x, Cursor(e)), Parent) => Some(Cursor(Lam(x, e)))
+  // Plus
+  | (Cursor(Plus(e1, e2)), Child(One)) => Some(LPlus(Cursor(e1), e2))
+  | (Cursor(Plus(e1, e2)), Child(Two)) => Some(RPlus(e1, Cursor(e2)))
+  | (LPlus(Cursor(e1), e2), Parent) => Some(Cursor(Plus(e1, e2)))
+  | (RPlus(e1, Cursor(e2)), Parent) => Some(Cursor(Plus(e1, e2)))
+  // Application
+  | (Cursor(Ap(e1, e2)), Child(One)) => Some(LAp(Cursor(e1), e2))
+  | (Cursor(Ap(e1, e2)), Child(Two)) => Some(RAp(e1, Cursor(e2)))
+  | (LAp(Cursor(e1), e2), Parent) => Some(Cursor(Ap(e1, e2)))
+  | (RAp(e1, Cursor(e2)), Parent) => Some(Cursor(Ap(e1, e2)))
+  // Non-Empty Hole
+  | (Cursor(NEHole(e)), Child(One)) => Some(NEHole(Cursor(e)))
+  | (NEHole(Cursor(e)), Parent) => Some(Cursor(NEHole(e)))
+  | _ => None
+  };
 };
 
 let rec syn_action =
