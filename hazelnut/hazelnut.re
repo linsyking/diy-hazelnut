@@ -1,5 +1,5 @@
 open Sexplib.Std;
-// open Monad_lib.Monad; // Uncomment this line to use the maybe monad
+open Monad_lib.Monad; // Uncomment this line to use the maybe monad
 
 let compare_string = String.compare;
 let compare_int = Int.compare;
@@ -78,16 +78,52 @@ let erase_exp = (e: zexp): hexp => {
   // Okay to remove
   let _ = e;
 
+  print_endline("erase unimplemented");
+
   raise(Unimplemented);
 };
 
-let syn = (ctx: typctx, e: hexp): option(htyp) => {
+let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
   // Used to suppress unused variable warnings
   // Okay to remove
   let _ = ctx;
   let _ = e;
-
-  raise(Unimplemented);
+  switch (e) {
+  | Var(x) => TypCtx.find_opt(x, ctx) // Rule 1a
+  | Ap(e1, e2) =>
+    // Rule 1b
+    let* t1 = syn(ctx, e1);
+    switch (t1) {
+    | Arrow(t11, t12) =>
+      if (ana(ctx, e2, t11)) {
+        Some(t12);
+      } else {
+        None;
+      }
+    | _ => None
+    };
+  | Lit(_) => Some(Num) // Rule 1c
+  | Plus(e1, e2) =>
+    // Rule 1d
+    if (ana(ctx, e1, Num) && ana(ctx, e2, Num)) {
+      Some(Num);
+    } else {
+      None;
+    }
+  | Asc(e, t) =>
+    // Rule 1e
+    if (ana(ctx, e, t)) {
+      Some(t);
+    } else {
+      None;
+    }
+  | EHole => Some(Hole) // Rule 1f
+  | NEHole(e) =>
+    // Rule 1g
+    let* _ = syn(ctx, e);
+    Some(Hole);
+  | Lam(_, _) => None
+  };
 }
 
 and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
@@ -97,7 +133,7 @@ and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
   let _ = e;
   let _ = t;
 
-  raise(Unimplemented);
+  false;
 };
 
 let syn_action =
@@ -108,8 +144,9 @@ let syn_action =
   let _ = e;
   let _ = t;
   let _ = a;
+  print_endline("syn_action unimplemented");
 
-  raise(Unimplemented);
+  Some((e, t));
 }
 
 and ana_action = (ctx: typctx, e: zexp, a: action, t: htyp): option(zexp) => {
