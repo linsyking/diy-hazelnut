@@ -107,6 +107,12 @@ let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
       } else {
         None;
       }
+    | Hole =>
+      if (ana(ctx, e2, Hole)) {
+        Some(Hole);
+      } else {
+        None;
+      }
     | _ => None
     };
   | Lit(_) => Some(Num) // Rule 1c
@@ -141,6 +147,9 @@ and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
     | Arrow(t1, t2) =>
       let ctx' = TypCtx.add(x, t1, ctx);
       ana(ctx', e, t2);
+    | Hole =>
+      let ctx' = TypCtx.add(x, Hole, ctx);
+      ana(ctx', e, Hole);
     | _ => false
     }
   | _ =>
