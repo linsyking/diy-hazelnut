@@ -172,17 +172,45 @@ and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
   };
 };
 
-let syn_action =
-    (ctx: typctx, (e: zexp, t: htyp), a: action): option((zexp, htyp)) => {
-  // Used to suppress unused variable warnings
-  // Okay to remove
-  let _ = ctx;
-  let _ = e;
-  let _ = t;
-  let _ = a;
-  print_endline("syn_action unimplemented");
+let rec typ_action = (t: ztyp, a: action): option(ztyp) => {
+  // A.3.1 Type Actions
+  switch (t, a) {
+  // Type Movement
+  | (Cursor(Arrow(t1, t2)), Move(Child(One))) =>
+    Some(LArrow(Cursor(t1), t2))
+  | (Cursor(Arrow(t1, t2)), Move(Child(Two))) =>
+    Some(RArrow(t1, Cursor(t2)))
+  | (LArrow(Cursor(t1), t2), Move(Parent)) => Some(Cursor(Arrow(t1, t2)))
+  | (RArrow(t1, Cursor(t2)), Move(Parent)) => Some(Cursor(Arrow(t1, t2)))
+  // Type Deletion
+  | (Cursor(_), Del) => Some(Cursor(Hole))
+  // Type Construction
+  | (Cursor(t'), Construct(Arrow)) => Some(RArrow(t', Cursor(Hole)))
+  | (Cursor(Hole), Construct(Num)) => Some(Cursor(Num))
+  // Zipper Cases
+  | (LArrow(t1, t2), _) =>
+    let* t1' = typ_action(t1, a);
+    Some(LArrow(t1', t2));
+  | (RArrow(t1, t2), _) =>
+    let* t2' = typ_action(t2, a);
+    Some(RArrow(t1, t2'));
+  | _ => None
+  };
+};
 
-  Some((e, t));
+let rec move_exp = (e: zexp, dir: dir): option(zexp) => {
+  // A.3.2 Expression Movement Actions
+  raise(Unimplemented);
+};
+
+let rec syn_action =
+        (ctx: typctx, (e: zexp, t: htyp), a: action): option((zexp, htyp)) => {
+  // switch (a) {
+  // | Move(dir) => syn_move(e, dir)
+  // };
+  raise(
+    Unimplemented,
+  );
 }
 
 and ana_action = (ctx: typctx, e: zexp, a: action, t: htyp): option(zexp) => {
