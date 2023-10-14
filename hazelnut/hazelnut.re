@@ -84,10 +84,6 @@ let erase_exp = (e: zexp): hexp => {
 };
 
 let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
-  // Used to suppress unused variable warnings
-  // Okay to remove
-  let _ = ctx;
-  let _ = e;
   switch (e) {
   | Var(x) => TypCtx.find_opt(x, ctx) // Rule 1a
   | Ap(e1, e2) =>
@@ -127,11 +123,6 @@ let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
 }
 
 and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
-  // Used to suppress unused variable warnings
-  // Okay to remove
-  let _ = ctx;
-  let _ = e;
-  let _ = t;
 
   false;
 };
