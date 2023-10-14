@@ -331,12 +331,60 @@ let rec syn_action =
 }
 
 and ana_action = (ctx: typctx, e: zexp, a: action, t: htyp): option(zexp) => {
-  // Used to suppress unused variable warnings
-  // Okay to remove
-  let _ = ctx;
-  let _ = e;
-  let _ = a;
-  let _ = t;
-
-  raise(Unimplemented);
+  switch (e, a, t) {
+  // Movement
+  | (_, Move(dir), _) =>
+    let* e' = exp_move(e, dir);
+    Some(e');
+  // Deletion
+  | (Cursor(_), Del, _) => Some(Cursor(EHole))
+  // Construction
+  | (Cursor(e'), Construct(Asc), t) => Some(RAsc(e', Cursor(t)))
+  | (Cursor(EHole), Construct(Var(name)), t) =>
+    let* t' = TypCtx.find_opt(name, ctx);
+    if (consistent_types(t, t')) {
+      None;
+    } else {
+      Some(NEHole(Cursor(Var(name))): zexp);
+    };
+  | (Cursor(EHole), Construct(Lam(name)), Arrow(_, _)) =>
+    Some(Lam(name, Cursor(EHole)): zexp)
+  | (Cursor(EHole), Construct(Lam(name)), Hole) =>
+    Some(Lam(name, Cursor(EHole)): zexp)
+  | (Cursor(EHole), Construct(Lam(name)), _) =>
+    Some(
+      NEHole(RAsc(Lam(name, EHole), LArrow(Cursor(Hole), Hole))): zexp,
+    )
+  | (Cursor(EHole), Construct(Lit(n)), _) =>
+    if (consistent_types(t, Num)) {
+      None;
+    } else {
+      Some(NEHole(Cursor(Lit(n))): zexp);
+    }
+  // Finishing
+  | (Cursor(NEHole(e)), Finish, t) =>
+    if (ana(ctx, e, t)) {
+      Some(Cursor(e));
+    } else {
+      None;
+    }
+  // Zipper Cases
+  | (Lam(x, e), _, Arrow(t1, t2)) =>
+    let ctx' = TypCtx.add(x, t1, ctx);
+    let* e' = ana_action(ctx', e, a, t2);
+    Some(Lam(x, e'): zexp);
+  | (Lam(x, e), _, Hole) =>
+    let ctx' = TypCtx.add(x, Hole, ctx);
+    let* e' = ana_action(ctx', e, a, Hole);
+    Some(Lam(x, e'): zexp);
+  // Subsumption
+  | _ =>
+    let* t' = syn(ctx, erase_exp(e));
+    let* (e', t'') = syn_action(ctx, (e, t'), a);
+    if (consistent_types(t, t'')) {
+      Some(e');
+    } else {
+      None;
+    };
+  };
 };
