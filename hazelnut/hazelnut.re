@@ -84,6 +84,24 @@ let rec consistent_types = (t1: htyp, t2: htyp): bool => {
   };
 };
 
+let rec inconsistent_types = (t1: htyp, t2: htyp): bool => {
+  switch (t1, t2) {
+  | (Num, Arrow(_, _)) => false
+  | (Arrow(_, _), Num) => false
+  | (Arrow(t11, t12), Arrow(t21, t22)) =>
+    inconsistent_types(t11, t21) || inconsistent_types(t12, t22)
+  | _ => false
+  };
+};
+
+let function_type_match = (t: htyp): option((htyp, htyp)) => {
+  switch (t) {
+  | Arrow(t1, t2) => Some((t1, t2))
+  | Hole => Some((Hole, Hole))
+  | _ => None
+  };
+};
+
 let rec erase_exp = (e: zexp): hexp => {
   switch (e) {
   | Cursor(e) => e
@@ -105,26 +123,24 @@ and erase_typ = (t: ztyp): htyp => {
   };
 };
 
+let is_some = (x: option('a)): bool => {
+  switch (x) {
+  | Some(_) => true
+  | None => false
+  };
+};
+
 let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
   switch (e) {
   | Var(x) => TypCtx.find_opt(x, ctx) // Rule 1a
   | Ap(e1, e2) =>
     // Rule 1b
     let* t1 = syn(ctx, e1);
-    switch (t1) {
-    | Arrow(t11, t12) =>
-      if (ana(ctx, e2, t11)) {
-        Some(t12);
-      } else {
-        None;
-      }
-    | Hole =>
-      if (ana(ctx, e2, Hole)) {
-        Some(Hole);
-      } else {
-        None;
-      }
-    | _ => None
+    let* (t11, t12) = function_type_match(t1);
+    if (ana(ctx, e2, t11)) {
+      Some(t12);
+    } else {
+      None;
     };
   | Lit(_) => Some(Num) // Rule 1c
   | Plus(e1, e2) =>
@@ -151,18 +167,18 @@ let rec syn = (ctx: typctx, e: hexp): option(htyp) => {
 }
 
 and ana = (ctx: typctx, e: hexp, t: htyp): bool => {
+  print_endline("ana");
   switch (e) {
-  | Lam(x, e) =>
+  | Lam(x, e)
+      when
+        switch (function_type_match(t)) {
+        | Some((t1, t2)) =>
+          let ctx' = TypCtx.add(x, t1, ctx);
+          ana(ctx', e, t2);
+        | None => false
+        } =>
     // Rule 2a
-    switch (t) {
-    | Arrow(t1, t2) =>
-      let ctx' = TypCtx.add(x, t1, ctx);
-      ana(ctx', e, t2);
-    | Hole =>
-      let ctx' = TypCtx.add(x, Hole, ctx);
-      ana(ctx', e, Hole);
-    | _ => false
-    }
+    true
   | _ =>
     // Rule 2b
     switch (syn(ctx, e)) {
@@ -198,7 +214,7 @@ let rec typ_action = (t: ztyp, a: action): option(ztyp) => {
   };
 };
 
-let rec exp_move = (e: zexp, dir: dir): option(zexp) => {
+let exp_move = (e: zexp, dir: dir): option(zexp) => {
   // A.3.2 Expression Movement Actions
   switch (e, dir) {
   // Ascription
@@ -231,14 +247,15 @@ let rec syn_action =
   // A.3.3 Synthetic and Analytic Expression Actions
   switch (e, a, t) {
   // Movement
-  | (_, Move(dir), t) =>
+  | (_, Move(dir), t) when is_some(exp_move(e, dir)) =>
     let* e' = exp_move(e, dir);
     Some((e', t));
   // Deletion
   | (Cursor(_), Del, _) => Some((Cursor(EHole), Hole))
   // Construction
   | (Cursor(e'), Construct(Asc), t) => Some((RAsc(e', Cursor(t)), t))
-  | (Cursor(EHole), Construct(Var(name)), Hole) =>
+  | (Cursor(EHole), Construct(Var(name)), Hole)
+      when is_some(TypCtx.find_opt(name, ctx)) =>
     let* t = TypCtx.find_opt(name, ctx);
     Some((Cursor(Var(name)), t));
   | (Cursor(EHole), Construct(Lam(name)), Hole) =>
@@ -256,15 +273,17 @@ let rec syn_action =
     }
   | (Cursor(EHole), Construct(Lit(n)), Hole) =>
     Some((Cursor(Lit(n)), Num))
-  | (Cursor(e'), Construct(Plus), t) =>
+  | (Cursor(e'), Construct(Plus), t)
+      when consistent_types(t, Num) || inconsistent_types(t, Num) =>
     if (consistent_types(t, Num)) {
       Some((RPlus(e', Cursor(EHole)), Num));
     } else {
+      // Inconsistent types
       Some((RPlus(NEHole(e'), Cursor(EHole)), Num));
     }
   | (Cursor(e'), Construct(NEHole), _) => Some((NEHole(Cursor(e')), Hole))
   // Finishing
-  | (Cursor(NEHole(e)), Finish, Hole) =>
+  | (Cursor(NEHole(e)), Finish, Hole) when is_some(syn(ctx, e)) =>
     let* t = syn(ctx, e);
     Some((Cursor(e), t));
   // Zipper Cases
@@ -333,20 +352,21 @@ let rec syn_action =
 and ana_action = (ctx: typctx, e: zexp, a: action, t: htyp): option(zexp) => {
   switch (e, a, t) {
   // Movement
-  | (_, Move(dir), _) =>
+  | (_, Move(dir), _) when is_some(exp_move(e, dir)) =>
     let* e' = exp_move(e, dir);
     Some(e');
   // Deletion
   | (Cursor(_), Del, _) => Some(Cursor(EHole))
   // Construction
   | (Cursor(e'), Construct(Asc), t) => Some(RAsc(e', Cursor(t)))
-  | (Cursor(EHole), Construct(Var(name)), t) =>
-    let* t' = TypCtx.find_opt(name, ctx);
-    if (consistent_types(t, t')) {
-      None;
-    } else {
-      Some(NEHole(Cursor(Var(name))): zexp);
-    };
+  | (Cursor(EHole), Construct(Var(name)), t)
+      when {
+        switch (TypCtx.find_opt(name, ctx)) {
+        | Some(t') => inconsistent_types(t, t')
+        | None => false
+        };
+      } =>
+    Some(NEHole(Cursor(Var(name))): zexp)
   | (Cursor(EHole), Construct(Lam(name)), Arrow(_, _)) =>
     Some(Lam(name, Cursor(EHole)): zexp)
   | (Cursor(EHole), Construct(Lam(name)), Hole) =>
@@ -355,27 +375,24 @@ and ana_action = (ctx: typctx, e: zexp, a: action, t: htyp): option(zexp) => {
     Some(
       NEHole(RAsc(Lam(name, EHole), LArrow(Cursor(Hole), Hole))): zexp,
     )
-  | (Cursor(EHole), Construct(Lit(n)), _) =>
-    if (consistent_types(t, Num)) {
-      None;
-    } else {
-      Some(NEHole(Cursor(Lit(n))): zexp);
-    }
+  | (Cursor(EHole), Construct(Lit(n)), _) when inconsistent_types(t, Num) =>
+    Some(NEHole(Cursor(Lit(n))): zexp)
   // Finishing
-  | (Cursor(NEHole(e)), Finish, t) =>
-    if (ana(ctx, e, t)) {
-      Some(Cursor(e));
-    } else {
-      None;
-    }
+  | (Cursor(NEHole(e)), Finish, t) when ana(ctx, e, t) => Some(Cursor(e))
   // Zipper Cases
-  | (Lam(x, e), _, Arrow(t1, t2)) =>
+  | (Lam(x, e), _, t)
+      when
+        is_some(
+          {
+            let* (t1, t2) = function_type_match(t);
+            let ctx' = TypCtx.add(x, t1, ctx);
+            let* e' = ana_action(ctx', e, a, t2);
+            Some(Lam(x, e'): zexp);
+          },
+        ) =>
+    let* (t1, t2) = function_type_match(t);
     let ctx' = TypCtx.add(x, t1, ctx);
     let* e' = ana_action(ctx', e, a, t2);
-    Some(Lam(x, e'): zexp);
-  | (Lam(x, e), _, Hole) =>
-    let ctx' = TypCtx.add(x, Hole, ctx);
-    let* e' = ana_action(ctx', e, a, Hole);
     Some(Lam(x, e'): zexp);
   // Subsumption
   | _ =>
